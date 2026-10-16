@@ -24,7 +24,6 @@ from atomworks.io.utils.bonds import (
     hash_graph,
 )
 from atomworks.io.utils.chain_info import update_sequences_from_res_names
-from atomworks.io.utils.selection import annot_start_stop_idxs
 
 logger = logging.getLogger("atomworks.io")
 
@@ -643,11 +642,12 @@ def annotate_entities(
         instance_graph = nx.Graph()
         instance_graph.add_edges_from(edges)
 
-        # ... set node attributes to lower level entities (vectorized)
-        # Direct annotation indexing instead of creating AtomArray objects via segment_iter()
-        segment_boundaries = annot_start_stop_idxs(instance, lower_level_id, add_exclusive_stop=True)
+        # Match the sorted unique annotation keys used to index the coarse graph nodes.
+        annotations = [lower_level_id] if isinstance(lower_level_id, str) else lower_level_id
+        node_keys = np.rec.fromarrays([instance.get_annotation(annot) for annot in annotations])
+        _, first_indices = np.unique(node_keys, return_index=True)
         entity_annotation = instance.get_annotation(lower_level_entity)
-        node_attrs = {idx: entity_annotation[start] for idx, start in enumerate(segment_boundaries[:-1])}
+        node_attrs = {idx: entity_annotation[first] for idx, first in enumerate(first_indices)}
         nx.set_node_attributes(instance_graph, node_attrs, "node")
 
         # ... create the graph hash

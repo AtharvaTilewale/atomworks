@@ -21,6 +21,8 @@ from atomworks.ml.transforms.filters import (
     RemoveUnresolvedTokens,
     RemoveUnsupportedChainTypes,
     random_remove_pn_units_by_annotation_query,
+    remove_nucleic_acid_terminal_oxygen,
+    remove_protein_terminal_oxygen,
 )
 from atomworks.ml.utils.rng import create_rng_state_from_seeds, rng_state
 from atomworks.ml.utils.testing import cached_parse
@@ -71,21 +73,31 @@ def test_remove_polymers_with_too_few_resolved_residues(test_case):
     assert min_num_residues >= min_residues
 
 
-def test_remove_terminal_oxygen():
-    atom_array = struc.info.residue("ILE")
-    assert "OXT" in atom_array.atom_name
-
-    # Add required chain_type annotation for the RemoveTerminalOxygen transform
-    atom_array.set_annotation("chain_type", np.full(atom_array.array_length(), ChainType.POLYPEPTIDE_L, dtype=int))
-
-    data = {"atom_array": atom_array}
-
-    transform = RemoveTerminalOxygen()
-    data = transform(data)
-
-    atom_array_new = data["atom_array"]
-    assert "OXT" not in atom_array_new.atom_name
-    assert len(atom_array_new) == len(atom_array) - 1
+@pytest.mark.parametrize("n_residues", [1, 2])
+@pytest.mark.parametrize("atomized", [False, True])
+@pytest.mark.parametrize(
+    "chain_type,terminal,transform,remove",
+    [
+        (ChainType.POLYPEPTIDE_L, "OXT", RemoveTerminalOxygen, remove_protein_terminal_oxygen),
+        (ChainType.DNA, "OP3", RemoveNucleicAcidTerminalOxygen, remove_nucleic_acid_terminal_oxygen),
+        (ChainType.RNA, "OP3", RemoveNucleicAcidTerminalOxygen, remove_nucleic_acid_terminal_oxygen),
+    ],
+)
+def test_remove_terminal_oxygen(n_residues, atomized, chain_type, terminal, transform, remove):
+    atoms = AtomArray(2 * n_residues)
+    atoms.coord = np.arange(6 * n_residues, dtype=float).reshape(-1, 3)
+    atoms.chain_id[:] = "A"
+    atoms.res_id = np.repeat(np.arange(n_residues), 2)
+    atoms.atom_name = np.tile(["CA", terminal], n_residues)
+    atoms.set_annotation("chain_type", np.full(len(atoms), chain_type, dtype=int))
+    atoms.set_annotation("atomize", np.full(len(atoms), atomized))
+    expected = len(atoms) if n_residues == 1 or atomized else n_residues
+    result = transform()({"atom_array": atoms})["atom_array"]
+    assert len(result) == expected
+    assert remove(atoms) == result
+    stacked = remove(struc.stack([atoms, atoms]))
+    assert stacked.array_length() == expected
+    assert stacked[0] == result
 
 
 @pytest.mark.parametrize("pdb_id", ["4gqa"])
