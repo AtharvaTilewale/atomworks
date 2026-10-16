@@ -1,11 +1,11 @@
 import numpy as np
 import pytest
-from biotite.structure import AtomArray
+from biotite.structure import AtomArray, BondList
 
 from atomworks.common import not_isin
 from atomworks.io.config import ParseConfig
 from atomworks.io.parser import parse
-from atomworks.io.transforms.atom_array import annotate_entities
+from atomworks.io.transforms.atom_array import add_id_and_entity_annotations, annotate_entities
 from tests.io.conftest import get_pdb_path
 
 # fmt: off
@@ -191,6 +191,22 @@ def test_regenerate_and_add_chain_entity_annotation(test_case):
         assert all(
             np.array_equal(sequences[0], arr) for arr in sequences[1:]
         ), "Sequences are not equal within an entity."
+
+
+def test_molecule_entities_ignore_chain_label_order() -> None:
+    """Equivalent linked chain triplets share an entity despite different label ordering."""
+    atom_array = AtomArray(6)
+    atom_array.chain_id = np.array(list("ABCDFE"))
+    atom_array.res_id[:] = 1
+    atom_array.res_name = np.array(["ALA", "GLY", "SER"] * 2)
+    atom_array.atom_name[:] = "CA"
+    atom_array.element[:] = "C"
+    atom_array.set_annotation("is_polymer", np.ones(6, dtype=bool))
+    atom_array.bonds = BondList(6, np.array([[0, 1, 1], [1, 2, 1], [3, 4, 1], [4, 5, 1]]))
+
+    add_id_and_entity_annotations(atom_array)
+
+    assert atom_array.molecule_entity[0] == atom_array.molecule_entity[3]
 
 
 if __name__ == "__main__":

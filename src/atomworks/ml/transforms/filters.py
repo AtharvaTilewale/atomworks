@@ -13,7 +13,7 @@ from atomworks.constants import HYDROGEN_LIKE_SYMBOLS
 from atomworks.enums import ChainType, ChainTypeInfo
 from atomworks.io.utils.link_chemistry import get_chem_comp_leaving_atom_groups
 from atomworks.io.utils.query import QueryExpression
-from atomworks.io.utils.selection import get_annotation
+from atomworks.io.utils.selection import get_annotation, get_residue_starts
 from atomworks.io.utils.sequence import get_1_from_3_letter_code, get_3_from_1_letter_code
 from atomworks.ml.preprocessing.constants import TRAINING_SUPPORTED_CHAIN_TYPES
 from atomworks.ml.transforms._checks import (
@@ -552,15 +552,21 @@ class HandleUndesiredResTokens(Transform):
         return data
 
 
-def remove_protein_terminal_oxygen(atom_array: AtomArray | AtomArrayStack) -> AtomArray | AtomArrayStack:
-    """Remove terminal oxygen atoms (`OXT`) from protein chains.
-
-    Terminal oxygen atoms are only removed from protein residues that are not atomized.
-    """
+def polymer_terminal_oxygen_mask(atom_array: AtomArray | AtomArrayStack) -> np.ndarray:
+    """Select non-atomized OXT/OP3 in protein/nucleic-acid chains containing multiple residues."""
+    chain = get_annotation(atom_array, "chain_iid", default=atom_array.chain_id)
+    chains, counts = np.unique(chain[get_residue_starts(atom_array)], return_counts=True)
+    multiple_residues = np.isin(chain, chains[counts > 1])
     is_atomized = get_annotation(atom_array, "atomize", default=np.zeros(atom_array.array_length(), dtype=bool))
-    is_terminal = atom_array.atom_name == "OXT"
-    is_protein = np.isin(atom_array.chain_type, ChainTypeInfo.PROTEINS)
-    remove = is_terminal & is_protein & ~is_atomized
+    terminal = ((atom_array.atom_name == "OXT") & np.isin(atom_array.chain_type, ChainTypeInfo.PROTEINS)) | (
+        (atom_array.atom_name == "OP3") & np.isin(atom_array.chain_type, ChainTypeInfo.NUCLEIC_ACIDS)
+    )
+    return terminal & multiple_residues & ~is_atomized
+
+
+def remove_protein_terminal_oxygen(atom_array: AtomArray | AtomArrayStack) -> AtomArray | AtomArrayStack:
+    """Remove non-atomized OXT from multi-residue protein chains, preserving free amino acids."""
+    remove = polymer_terminal_oxygen_mask(atom_array) & (atom_array.atom_name == "OXT")
 
     if isinstance(atom_array, AtomArray):
         return atom_array[~remove]
@@ -569,7 +575,7 @@ def remove_protein_terminal_oxygen(atom_array: AtomArray | AtomArrayStack) -> At
 
 
 class RemoveTerminalOxygen(Transform):
-    """Remove terminal oxygen atoms (`OXT`) from the atom array."""
+    """Remove non-atomized OXT from multi-residue protein chains, preserving free amino acids."""
 
     # TODO: Rename to RemoveProteinTerminalOxygen
 
@@ -582,15 +588,8 @@ class RemoveTerminalOxygen(Transform):
 
 
 def remove_nucleic_acid_terminal_oxygen(atom_array: AtomArray | AtomArrayStack) -> AtomArray | AtomArrayStack:
-    """Remove terminal oxygen atoms (`OP3`) in nucleic acids from the atom array."""
-    # Built mask non-atomized terminal oxygen atoms on nucleic acids
-    is_atomized = get_annotation(
-        atom_array, "atomize", n_body=1, default=np.zeros(atom_array.array_length(), dtype=bool)
-    )
-    is_terminal = atom_array.atom_name == "OP3"
-    is_nucleic_acid = np.isin(atom_array.chain_type, ChainTypeInfo.NUCLEIC_ACIDS)
-
-    remove = is_terminal & is_nucleic_acid & ~is_atomized
+    """Remove non-atomized OP3 from multi-residue nucleic-acid chains, preserving free nucleotides."""
+    remove = polymer_terminal_oxygen_mask(atom_array) & (atom_array.atom_name == "OP3")
 
     if isinstance(atom_array, AtomArray):
         return atom_array[~remove]
@@ -599,9 +598,7 @@ def remove_nucleic_acid_terminal_oxygen(atom_array: AtomArray | AtomArrayStack) 
 
 
 class RemoveNucleicAcidTerminalOxygen(Transform):
-    """
-    Remove terminal oxygen atoms (`OP3`) in nucleic acids from the atom array.
-    """
+    """Remove non-atomized OP3 from multi-residue nucleic-acid chains, preserving free nucleotides."""
 
     def check_input(self, data: dict[str, Any]) -> None:
         check_contains_keys(data, ["atom_array"])

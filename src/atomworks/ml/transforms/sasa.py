@@ -12,11 +12,53 @@ from atomworks.ml.transforms._checks import (
 )
 from atomworks.ml.transforms.base import Transform
 
-# User-extension dict for VdW radii of elements not known to biotite.
-# Checked before biotite's vdw_radius_single in _get_element_radii and
-# _get_protor_element_fallback_radii. Populate at runtime to override or
-# extend biotite's built-in Mantina 2009 table for exotic elements.
-_ELEMENT_VDW_RADII: dict[str, float] = {}
+# Alvarez (2013), Table 1: radii in angstroms for elements absent from Biotite 1.6.0.
+# https://doi.org/10.1039/C3DT50599E; entries also serve as user overrides.
+_ELEMENT_VDW_RADII: dict[str, float] = {
+    "SC": 2.58,
+    "TI": 2.46,
+    "V": 2.42,
+    "CR": 2.45,
+    "Y": 2.75,
+    "ZR": 2.52,
+    "NB": 2.56,
+    "TC": 2.44,
+    "RH": 2.44,
+    "PD": 2.15,
+    "AG": 2.53,
+    "CD": 2.49,
+    "LA": 2.98,
+    "CE": 2.88,
+    "PR": 2.92,
+    "ND": 2.95,
+    "SM": 2.90,
+    "EU": 2.87,
+    "GD": 2.83,
+    "TB": 2.79,
+    "DY": 2.87,
+    "HO": 2.81,
+    "ER": 2.83,
+    "TM": 2.79,
+    "YB": 2.80,
+    "LU": 2.74,
+    "HF": 2.63,
+    "TA": 2.53,
+    "RE": 2.49,
+    "OS": 2.48,
+    "IR": 2.41,
+    "HG": 2.45,
+    "AC": 2.80,
+    "TH": 2.93,
+    "PA": 2.88,
+    "U": 2.71,
+    "NP": 2.82,
+    "PU": 2.81,
+    "AM": 2.83,
+    "CM": 3.05,
+    "BK": 3.40,
+    "CF": 3.05,
+    "ES": 2.70,
+}
 
 
 def _resolve_element_radius(elem: str) -> float | None:
@@ -25,10 +67,10 @@ def _resolve_element_radius(elem: str) -> float | None:
 
 
 def _get_element_radii(atom_array: AtomArray) -> np.ndarray:
-    """Get VdW radii for all atoms based on element type (Mantina 2009).
+    """Get element-based VdW radii from Biotite with Alvarez (2013) supplements.
 
-    Checks ``_ELEMENT_VDW_RADII`` first (for user overrides), then falls back
-    to biotite's ``vdw_radius_single`` which covers the full periodic table.
+    Checks ``_ELEMENT_VDW_RADII`` first (Alvarez supplements and user overrides),
+    then falls back to biotite's ``vdw_radius_single``.
     Raises ValueError only if neither source has a radius.
 
     Vectorized: resolves each unique element once, then broadcasts.

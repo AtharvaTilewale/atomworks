@@ -282,5 +282,22 @@ def test_add_global_res_id_annotation():
         ), f"All atoms in residue should have res_id_global {counter} but got {residue.res_id_global}"
 
 
+def test_explicit_token_centers(mixed_residues):
+    """Honor explicit residue centers and atomized atoms, rejecting malformed center annotations."""
+    atoms = mixed_residues[:4]
+    atoms.atomize[2:] = True
+    atoms.set_annotation("is_token_center", np.array([False, True, False, False]))
+    np.testing.assert_array_equal(get_af3_token_center_masks(atoms), [False, True, True, True])
+    for centers in ([False] * 4, [True, True, False, False]):
+        atoms.is_token_center[:] = centers
+        with pytest.raises(ValueError, match="exactly one center"):
+            get_af3_token_center_masks(atoms)
+    assert not get_af3_token_center_masks(atoms[:0]).size
+    atoms.del_annotation("is_token_center")
+    atoms.set_annotation("is_token_center", np.ones(4, dtype=int))
+    with pytest.raises(ValueError, match="boolean"):
+        get_af3_token_center_masks(atoms)
+
+
 if __name__ == "__main__":
     pytest.main(["-v", "-x", __file__])

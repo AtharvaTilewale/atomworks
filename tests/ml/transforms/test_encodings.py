@@ -294,5 +294,15 @@ def test_atomize_token_none_uses_atomic_number_tokens():
         assert encoded["seq"][i] == encoding.token_to_idx[token_name]
 
 
+def test_caller_owned_encoding_preserves_class_and_slot_order(mixed_residues):
+    """Respect caller-defined token IDs, empty slots, and nonstandard atom order."""
+    encoding = TokenEncoding({"XS1": np.array(["C1", "C2", ""]), "XAA": np.array(["C2", "", "C1"])})
+    atoms = mixed_residues[:4]
+    result = atom_array_to_encoding(atoms, encoding)
+    np.testing.assert_array_equal(result["seq"], [1, 0])
+    np.testing.assert_array_equal(result["mask"], [[True, False, True], [True, True, False]])
+    np.testing.assert_array_equal(result["xyz"][0, [0, 2]], atoms.coord[[1, 0]])
+
+
 if __name__ == "__main__":
     pytest.main(["-v", "-x", __file__])

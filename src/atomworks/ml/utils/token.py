@@ -344,6 +344,9 @@ def get_af3_token_center_masks(atom_array: AtomArray, enforce_one_per_token: boo
         - C1' for standard nucleotides
         - For other cases take the first and only atom as they are tokenized per-atom.
 
+    An optional boolean ``is_token_center`` annotation overrides residue centers.
+    Atomized atoms remain their own centers; non-atomized tokens require exactly one marked atom.
+
     Args:
         atom_array (AtomArray): The atom array to get the center atoms of.
         enforce_one_per_token (bool, optional): If True, raises an error if the number of center atoms
@@ -359,6 +362,16 @@ def get_af3_token_center_masks(atom_array: AtomArray, enforce_one_per_token: boo
     assert (
         "atomize" in atom_array.get_annotation_categories()
     ), "Atomize annotation is missing. Run AtomizeByCCDName Transform first!"
+
+    if "is_token_center" in atom_array.get_annotation_categories():
+        if atom_array.is_token_center.dtype != bool:
+            raise ValueError("is_token_center must be a boolean annotation")
+        is_center_atom = atom_array.atomize | atom_array.is_token_center
+        if enforce_one_per_token and len(atom_array):
+            counts = np.add.reduceat(is_center_atom, get_token_starts(atom_array))
+            if np.any(counts != 1):
+                raise ValueError("is_token_center must designate exactly one center atom per token")
+        return is_center_atom
 
     is_center_atom = (
         atom_array.atomize  # the atom itself for un-atomized tokens

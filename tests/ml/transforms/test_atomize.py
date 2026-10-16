@@ -4,6 +4,7 @@ import pytest
 
 from atomworks.constants import STANDARD_AA
 from atomworks.ml.transforms.atomize import AtomizeByCCDName
+from atomworks.ml.transforms.random_atomize_residues import RandomAtomizeResidues
 from atomworks.ml.utils.testing import cached_parse
 
 
@@ -98,6 +99,34 @@ def test_atomizing_non_protein_residues(pdb_id: str):
     _is_protein = struc.filter_canonical_amino_acids(data["atom_array"])
     assert not np.any(data["atom_array"][_is_protein].atomize), "Protein residues should not be atomized"
     assert np.all(data["atom_array"][~_is_protein].atomize), "Non-protein residues should be atomized"
+
+
+@pytest.mark.parametrize("probability", [-0.1, 1.1, float("nan")])
+def test_random_atomization_rejects_invalid_probability(probability):
+    """Reject invalid probabilities in both scalar and residue-specific forms."""
+    for value in (probability, {"CUSTOM": probability}):
+        with pytest.raises(ValueError, match="probabilities"):
+            RandomAtomizeResidues(value)
+
+
+def test_random_atomization_caller_residue_probabilities(mixed_residues):
+    """Honor caller probabilities and existing atomization."""
+    atoms = mixed_residues
+    atoms.atomize[2:4] = True
+    transform = RandomAtomizeResidues({"XAA": 1.0, "XS1": 0.0})
+    result = transform({"atom_array": atoms.copy()})["atom_array"]
+    np.testing.assert_array_equal(result.atomize, [True, True, True, True, False, False])
+    np.testing.assert_array_equal(result.res_name, atoms.res_name)
+    np.testing.assert_array_equal(
+        RandomAtomizeResidues({})({"atom_array": atoms.copy()})["atom_array"].atomize, atoms.atomize
+    )
+    with pytest.warns(DeprecationWarning, match="Scalar p_atomize"):
+        legacy = RandomAtomizeResidues(1.0, res_names=["ALA"])
+        np.testing.assert_array_equal(
+            legacy({"atom_array": atoms.copy()})["atom_array"].atomize, [False, False, True, True, True, True]
+        )
+    with pytest.raises(ValueError, match="res_names"):
+        RandomAtomizeResidues({"ALA": 1.0}, res_names=["ALA"])
 
 
 if __name__ == "__main__":
