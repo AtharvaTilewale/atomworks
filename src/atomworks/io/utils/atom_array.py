@@ -6,6 +6,7 @@ import numpy as np
 from biotite.structure import AtomArray, AtomArrayStack
 
 from atomworks.constants import BIOTITE_BOND_TYPE_TO_BOND_ORDER, HYDROGEN_LIKE_SYMBOLS, WATER_LIKE_CCDS
+from atomworks.io.utils.atom_array_plus import has_annotation as _has_annotation
 
 # Backwards compatability: imported here to avoid breaking changes, but should be imported from atomworks.io.utils.scatter in the future.
 from atomworks.io.utils.scatter import apply_and_spread_segment_wise as apply_and_spread  # noqa: F401
@@ -206,17 +207,17 @@ def count_bonded_hydrogens(atom_array: AtomArray, atom_idx: int, include_implici
 
 
 def has_annotation(arr: AtomArray, annotation: str | list[str]) -> bool:
-    """Check if an AtomArray has an annotation.
+    """Compatibility wrapper for per-atom presence checks, including ``coord``.
+
+    Use :func:`atomworks.io.utils.atom_array_plus.has_annotation` for explicit
+    body-order checks of stored annotation names.
 
     Args:
         arr: AtomArray to check.
         annotation: Annotation(s) to check for.
     """
-    existing_annotations = frozenset(["coord", *arr.get_annotation_categories()])
-    if isinstance(annotation, str):
-        return annotation in existing_annotations
-    else:
-        return set(annotation).issubset(existing_annotations)
+    names = [annotation] if isinstance(annotation, str) else annotation
+    return all(name == "coord" or _has_annotation(arr, name) for name in names)
 
 
 def chain_identifier(atom_array: AtomArray) -> np.ndarray:

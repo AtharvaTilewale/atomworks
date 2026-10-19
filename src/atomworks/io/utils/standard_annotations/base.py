@@ -17,7 +17,7 @@ import numpy as np
 from biotite.structure import AtomArray
 
 from atomworks.io.utils import scatter
-from atomworks.io.utils.atom_array_plus import AnnotationList2D
+from atomworks.io.utils.atom_array_plus import AnnotationList2D, has_annotation
 from atomworks.io.utils.selection import (
     _validate_n_body_and_type,
     get_annotation,
@@ -326,8 +326,7 @@ class StandardAnnotationBase(ABC, metaclass=StandardAnnotationMeta):
     @classmethod
     def has_annotation(cls, atom_array: AtomArray) -> bool:
         """Check if the value annotation for this StandardAnnotation is present on the AtomArray."""
-        categories = get_annotation_categories(atom_array, n_body=cls.n_body)
-        return any(name in categories for name in (cls.full_name, *cls.aliases))
+        return any(has_annotation(atom_array, name, n_body=cls.n_body) for name in (cls.full_name, *cls.aliases))
 
     @staticmethod
     def _values_equal(first: np.ndarray, second: np.ndarray) -> bool:

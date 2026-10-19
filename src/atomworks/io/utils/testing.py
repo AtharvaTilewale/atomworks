@@ -15,7 +15,7 @@ from rdkit import Chem
 
 from atomworks.constants import PDB_MIRROR_PATH
 from atomworks.io.utils.atom_array import subset_to_first_transformation
-from atomworks.io.utils.atom_array_plus import AnnotationList2D, as_atom_array_plus
+from atomworks.io.utils.atom_array_plus import AnnotationList2D, as_atom_array_plus, has_annotation
 from atomworks.io.utils.bonds import remap_intra_residue_coordination_bonds
 from atomworks.io.utils.scatter import apply_group_wise, apply_segment_wise
 from atomworks.io.utils.selection import get_annotation, get_annotation_categories, get_residue_starts
@@ -350,9 +350,9 @@ def _assert_same_atom_array(
 
     # Compare annotations directly
     for annotation in annotations_to_compare:
-        if annotation not in get_annotation_categories(arr1, n_body="all"):
+        if not has_annotation(arr1, annotation, n_body="all"):
             raise AssertionError(f"Annotation {annotation} not in arr1.")
-        if annotation not in get_annotation_categories(arr2, n_body="all"):
+        if not has_annotation(arr2, annotation, n_body="all"):
             raise AssertionError(f"Annotation {annotation} not in arr2.")
 
         comparison_fn = functools.partial(

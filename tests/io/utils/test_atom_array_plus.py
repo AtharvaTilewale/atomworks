@@ -557,6 +557,33 @@ class TestAtomArrayPlus:
         assert sorted_bonds.shape == sorted_expected.shape
         assert np.all([any(np.array_equal(sb, se) for se in sorted_expected) for sb in sorted_bonds])
 
+    @pytest.mark.parametrize("sizes, positions", [([1, 1, 1], [1, 1, 3]), ([1, 1, 1], [4, 0, 1]), ([2, 1], [4, 0])])
+    def test_insert_atoms_block_matches_fragments(self, complete_atom_array_plus, sizes, positions):
+        """Block insertion preserves stable order, bonds, and pairwise annotations."""
+        arr = complete_atom_array_plus.copy()
+        annotations_2d = arr.get_annotation_2d_categories()
+        atoms = [
+            _make_single_atom("H", [0.5, 0, 0], annotations_2d),
+            _make_single_atom("F", [0.6, 0, 0], annotations_2d),
+            _make_single_atom("Cl", [2.5, 0, 0], annotations_2d),
+        ]
+        starts = np.concatenate(([0], np.cumsum(sizes)))
+        members = [
+            concatenate_atom_array_plus(atoms[start:stop]) for start, stop in zip(starts[:-1], starts[1:], strict=True)
+        ]
+        if sizes[0] == 2:
+            members[0].bonds = struc.BondList(2, np.array([[0, 1, 1]]))
+            members[0].set_annotation("dist", AnnotationList2D(2, [[0, 1]], [0.1]), n_body=2)
+        expected = insert_atoms(arr, members, positions)
+        block = concatenate_atom_array_plus(members)
+        got = insert_atoms(arr, block, np.repeat(positions, sizes))
+        assert got.equal_annotations(expected)
+        np.testing.assert_allclose(got.coord, expected.coord)
+        assert got.bonds == expected.bonds
+        dist_expected, dist_got = expected.get_annotation("dist", n_body=2), got.get_annotation("dist", n_body=2)
+        assert np.array_equal(dist_expected.pairs, dist_got.pairs)
+        assert np.allclose(dist_expected.values, dist_got.values)
+
     def test_insert_atoms_annotation_mismatch_policy(self):
         """Annotation mismatch handling is forwarded through insertion."""
         arr = AtomArrayPlus(1)

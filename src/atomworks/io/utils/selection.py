@@ -94,7 +94,7 @@ def _validate_n_body_and_type(atom_array: AtomArray | AtomArrayStack, n_body: in
     if n_body != 1 and not isinstance(atom_array, aap._AtomArrayPlusBase):
         raise ValueError(f"Cannot {operation} with n_body={n_body} on non-AtomArrayPlus!")
 
-    if n_body not in (0, 1, 2):
+    if n_body not in aap._ANNOTATION_STORAGE:
         raise NotImplementedError(f"Cannot {operation} with n_body={n_body}!")
 
 
@@ -120,11 +120,11 @@ def get_annotation(
         _validate_n_body_and_type(atom_array, n_body, f"get annotation for {annot}")
     else:
         # Auto-detect annotation dimensionality if n_body not specified
-        for body in (1, 2, 0):
-            if annot in get_annotation_categories(atom_array, n_body=body):
+        for body in aap._ANNOTATION_STORAGE:
+            if aap.has_annotation(atom_array, annot, n_body=body):
                 return get_annotation(atom_array, annot, n_body=body)
 
-    if n_body is not None and annot in get_annotation_categories(atom_array, n_body=n_body):
+    if n_body is not None and aap.has_annotation(atom_array, annot, n_body=n_body):
         if isinstance(atom_array, aap._AtomArrayPlusBase):
             return atom_array.get_annotation(annot, n_body=n_body)
         return atom_array.get_annotation(annot)
@@ -143,10 +143,14 @@ def get_annotation_categories(atom_array: AtomArray | AtomArrayStack, n_body: in
       Names of available annotation categories for the requested dimensionality.
     """
     if n_body == "all":
-        return [name for body in (0, 1, 2) for name in get_annotation_categories(atom_array, n_body=body)]
+        return [
+            name
+            for body in sorted(aap._ANNOTATION_STORAGE)
+            for name in get_annotation_categories(atom_array, n_body=body)
+        ]
     if n_body == 1:
         return atom_array.get_annotation_categories()
-    if n_body in (0, 2) and isinstance(atom_array, aap._AtomArrayPlusBase):
+    if n_body in aap._ANNOTATION_STORAGE and isinstance(atom_array, aap._AtomArrayPlusBase):
         return atom_array.get_annotation_categories(n_body=n_body)
     return []
 
