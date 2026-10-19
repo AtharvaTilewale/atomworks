@@ -69,7 +69,7 @@ from atomworks.constants import (
 )
 from atomworks.enums import ChainType
 from atomworks.io.transforms.atom_array import add_chain_type_annotation
-from atomworks.io.utils.atom_array_plus import AnnotationList2D
+from atomworks.io.utils.atom_array_plus import AnnotationList2D, has_annotation
 from atomworks.io.utils.ccd import get_chem_comp_type
 from atomworks.io.utils.chain_info import build_chain_info
 from atomworks.io.utils.scatter import apply_and_spread_segment_wise
@@ -105,7 +105,7 @@ def _register_lazy_annotator(annot_name: str) -> Callable:
     def decorator(fn: Callable[[AtomArray], Array]) -> Callable[[AtomArray], None]:
         @functools.wraps(fn)
         def wrapper(atom_array: AtomArray) -> None:
-            if annot_name not in get_annotation_categories(atom_array, n_body="all"):
+            if not has_annotation(atom_array, annot_name, n_body="all"):
                 values = fn(atom_array)
                 if isinstance(values, AnnotationList2D):
                     atom_array.set_annotation(annot_name, values, n_body=2)
@@ -177,7 +177,7 @@ def _ensure_single_annotation(atom_array: AtomArray, name: str) -> None:
     Raises:
         ValueError: If no generator is found for ``name``.
     """
-    if name not in get_annotation_categories(atom_array, n_body="all"):
+    if not has_annotation(atom_array, name, n_body="all"):
         if name in ANNOTATOR_REGISTRY:
             ANNOTATOR_REGISTRY[name](atom_array)
         else:

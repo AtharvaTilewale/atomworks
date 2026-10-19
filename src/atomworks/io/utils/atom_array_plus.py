@@ -1,8 +1,8 @@
 import copy
 import logging
 import numbers
+import operator
 import warnings
-from collections import defaultdict
 from collections.abc import Sequence
 from typing import Any, Generic, Literal, TypeVar, Union
 
@@ -16,6 +16,8 @@ logger = logging.getLogger("atomworks.io")
 
 T = TypeVar("T")
 AnnotationMismatchPolicy = Literal["raise", "warn", "drop"]
+# Lookup precedence for auto-detected annotations: per-atom, pairwise, then system-wide.
+_ANNOTATION_STORAGE = {1: "_annot", 2: "_annot_2d", 0: "_annot_0d"}
 
 
 def _get_sensible_default(dtype: Any) -> Any:
@@ -407,6 +409,33 @@ class AnnotationList2D(Generic[T]):
         return len(self.values)
 
 
+def has_annotation(atom_array: AtomArray | AtomArrayStack, name: str, *, n_body: int | Literal["all"] = 1) -> bool:
+    """Check live annotation storage without enumerating names.
+
+    Args:
+        atom_array: Plain or Plus array or stack to query.
+        name: Literal stored name; StandardAnnotation aliases are not resolved.
+        n_body: Body order to check, or ``"all"`` for any supported order.
+            Defaults to per-atom annotations (1). Plain arrays have no 0D/2D annotations.
+
+    Returns:
+        Whether the annotation exists at the requested body order.
+
+    Raises:
+        ValueError: If the body order is unsupported.
+    """
+    if n_body == 1:
+        return name in atom_array._annot
+    if n_body == "all":
+        return name in atom_array._annot or (
+            isinstance(atom_array, _AtomArrayPlusBase)
+            and any(name in atom_array._n_body_annotations(body) for body in _ANNOTATION_STORAGE if body != 1)
+        )
+    if n_body not in _ANNOTATION_STORAGE:
+        raise ValueError(f"Unsupported annotation body order: {n_body!r}")
+    return isinstance(atom_array, _AtomArrayPlusBase) and name in atom_array._n_body_annotations(n_body)
+
+
 class _AtomArrayPlusBase:
     """Shared system-wide and pairwise annotation support for AtomArrayPlus and AtomArrayPlusStack."""
 
@@ -425,9 +454,9 @@ class _AtomArrayPlusBase:
     def _n_body_annotations(self, n_body: int) -> dict:
         if n_body == 0:
             return self._get_annot_0d()
-        if n_body == 2:
-            return self._annot_2d
-        raise ValueError(f"n_body must be 0, 1 or 2, got {n_body!r}")
+        if n_body not in _ANNOTATION_STORAGE:
+            raise ValueError(f"Unsupported annotation body order: {n_body!r}")
+        return getattr(self, _ANNOTATION_STORAGE[n_body])
 
     def set_annotation(self, category: str, array: Any, *, n_body: int = 1) -> None:
         """Set a system scalar (0), per-atom array (1), or sparse AnnotationList2D (2).
@@ -1104,7 +1133,17 @@ def concatenate_atom_array_plus(
         ValueError: If the policy is invalid or is ``"raise"`` and annotations
             differ between inputs, or if system values conflict regardless of policy.
     """
-    arrays_plus = [as_atom_array_plus(array) for array in arrays]
+    converted: dict[int, AtomArrayPlus] = {}
+    arrays_plus = []
+    for array in arrays:
+        if isinstance(array, AtomArrayPlus):
+            arrays_plus.append(array)
+        else:
+            # Repeated templates need only one conversion per concatenation.
+            key = id(array)
+            if key not in converted:
+                converted[key] = as_atom_array_plus(array)
+            arrays_plus.append(converted[key])
 
     valid_policies = {"raise", "warn", "drop"}
     if on_annotation_mismatch_policy not in valid_policies:
@@ -1242,61 +1281,58 @@ def concatenate_any(
 
 def insert_atoms(
     arr: AtomArray | AtomArrayPlus,
-    new_atoms: list[AtomArray | AtomArrayPlus | struc.Atom],
-    insert_positions: list[int],
+    new_atoms: AtomArray | AtomArrayPlus | list[AtomArray | AtomArrayPlus | struc.Atom],
+    insert_positions: Sequence[int] | np.ndarray,
     *,
     on_annotation_mismatch_policy: AnnotationMismatchPolicy = "raise",
     fill_missing_standard_annotations: bool = False,
 ) -> AtomArray | AtomArrayPlus:
-    """Insert atoms into an AtomArray or AtomArrayPlus before specified positions.
+    """Insert fragments or a single atom block, preserving bonds and annotations.
 
-    Atoms are first concatenated to the end, then the array is sorted so that the new atoms appear at the specified positions.
-    The function is robust to both AtomArray and AtomArrayPlus, and preserves 2D annotations and bonds.
+    Concatenate once, then stably reorder. Passing an existing block avoids
+    per-fragment concatenation overhead; list inputs retain fragment-level positions.
 
     Args:
         arr: Array into which atoms are inserted.
-        new_atoms: Atoms or arrays to insert.
-        insert_positions: Position before which each corresponding entry in
-            ``new_atoms`` is inserted.
+        new_atoms: A list of atoms/arrays, or one AtomArray/AtomArrayPlus block.
+        insert_positions: One integer per list entry, or per atom for a block.
+            Positions refer to the original ``arr`` and must be in ``[0, len(arr)]``.
+            Insertions go before that position; ``len(arr)`` appends. Ties preserve input order.
         on_annotation_mismatch_policy: Forwarded to :func:`concatenate_any`.
         fill_missing_standard_annotations: Forwarded to :func:`concatenate_any`.
+
+    Raises:
+        ValueError: Positions have the wrong shape, count, or bounds.
+        TypeError: New atoms are neither a list nor an array, or positions contain nonintegers.
     """
-    n_atoms_orig = arr.array_length()
-    assert isinstance(new_atoms, list) and isinstance(
-        new_atoms[0], AtomArray | AtomArrayPlus | struc.Atom
-    ), "new_atoms must be a list of AtomArray, AtomArrayPlus, or Atom objects."
-    assert len(new_atoms) == len(insert_positions), "Each new atom must have a corresponding insert position."
+    if not isinstance(new_atoms, AtomArray | list):
+        raise TypeError("new_atoms must be a list of atoms/arrays or an AtomArray block")
+    positions = np.asarray(insert_positions)
+    if positions.ndim != 1 or positions.size != len(new_atoms):
+        raise ValueError("insert_positions must be one-dimensional with one entry per list item or block atom")
+    if positions.size and not np.issubdtype(positions.dtype, np.integer):
+        try:
+            positions = np.asarray([operator.index(position) for position in insert_positions])
+        except TypeError:
+            raise TypeError("insert_positions must contain integers") from None
+    if np.any((positions < 0) | (positions > len(arr))):
+        raise ValueError("insert_positions must be between 0 and len(arr), inclusive")
+    positions = positions.astype(np.intp, copy=False)
+
+    if isinstance(new_atoms, list):
+        positions = np.repeat(positions, [1 if isinstance(atom, struc.Atom) else len(atom) for atom in new_atoms])
+        arrays = [arr, *new_atoms]
+    else:
+        arrays = [arr, new_atoms]
     arr_all = concatenate_any(
-        [arr, *new_atoms],
+        arrays,
         on_annotation_mismatch_policy=on_annotation_mismatch_policy,
         fill_missing_standard_annotations=fill_missing_standard_annotations,
     )
 
-    # Build a mapping from position to list of new atom indices to insert there
-    insert_map = defaultdict(list)
-    offset = n_atoms_orig
-    for pos, new_arr in zip(insert_positions, new_atoms, strict=True):
-        if isinstance(new_arr, struc.Atom):
-            insert_map[pos].append(offset)
-            offset += 1
-        else:
-            insert_map[pos].extend(list(range(offset, offset + len(new_arr))))
-            offset += len(new_arr)
-
-    result_indices = []
-    orig_idx = 0
-    for pos in range(n_atoms_orig + 1):
-        # Insert all new atoms scheduled for this position
-        result_indices.extend(insert_map.get(pos, []))
-        # Insert the original atom, unless we're past the end
-        if pos < n_atoms_orig:
-            result_indices.append(orig_idx)
-            orig_idx += 1
-    assert (
-        len(result_indices) == arr_all.array_length()
-    ), "Result indices must match the length of the concatenated array"
-
-    return arr_all[result_indices]
+    # Even insertion slots precede odd original-atom slots; stable sorting preserves ties.
+    slots = np.concatenate((2 * np.arange(len(arr)) + 1, 2 * positions))
+    return arr_all[np.argsort(slots, kind="stable")]
 
 
 def stack_atom_array_plus(arrays: list[AtomArrayPlus]) -> AtomArrayPlusStack:

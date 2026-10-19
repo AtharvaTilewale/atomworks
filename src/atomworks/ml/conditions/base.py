@@ -12,7 +12,6 @@ import numpy as np
 from biotite.structure import AtomArray
 
 from atomworks.io.utils.scatter import safe_scatter
-from atomworks.io.utils.selection import get_annotation_categories
 from atomworks.io.utils.standard_annotations.base import (
     AnnotationRegistryAccessor,
     StandardAnnotationBase,
@@ -184,9 +183,8 @@ class ConditionAccessor(AnnotationRegistryAccessor):
         Returns:
             The atom array with all missing condition defaults applied.
         """
-        all_annotation_categories = set(get_annotation_categories(atom_array, n_body="all"))
         for condition_cls in self:
-            if not any(name in all_annotation_categories for name in (condition_cls.full_name, *condition_cls.aliases)):
+            if not condition_cls.has_annotation(atom_array):
                 default_annotation = condition_cls.annotation(atom_array, default="generate")
                 condition_cls.set_annotation(atom_array, default_annotation)
 
